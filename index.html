@@ -6,12 +6,55 @@
   <title>帯状疱疹ワクチン補助 年齢判定</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
   <style>
-    body { padding: 1.5rem; }
-    video, canvas, img { width: 100%; border-radius: 12px; }
+    :root {
+      --pico-primary: #1b7f4a;
+      --pico-primary-background: #1b7f4a;
+      --pico-primary-hover: #146438;
+      --pico-primary-focus: #1b7f4a;
+    }
+
+    body {
+      padding: 1.5rem;
+      background: radial-gradient(circle at 20% 20%, #f0fff6, #ffffff 35%),
+        radial-gradient(circle at 80% 0%, #e6f8ee, #ffffff 45%),
+        #f9fffb;
+    }
+
+    h1,
+    h2,
+    h3,
+    figcaption {
+      color: #0f5132;
+    }
+
+    video,
+    canvas,
+    img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid #d3e9db;
+      box-shadow: 0 10px 30px rgba(27, 127, 74, 0.08);
+    }
+
     figure { margin: 0; }
     .stack { display: grid; gap: 0.5rem; }
     .range-table { overflow-x: auto; }
-    .pill { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; }
+    .pill {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      background: #e6f6ed;
+      color: #0f5132;
+      border: 1px solid #b8dfc7;
+    }
+    article.contrast {
+      background: linear-gradient(135deg, #e6f6ed, #ffffff);
+      border: 1px solid #b8dfc7;
+      box-shadow: 0 12px 30px rgba(27, 127, 74, 0.12);
+    }
+    article:not(.contrast) {
+      border: 1px solid #e0e6e3;
+    }
     #snapshot { image-rendering: pixelated; }
   </style>
 </head>
