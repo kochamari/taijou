@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>帯状疱疹ワクチン補助 年齢判定</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+  <style>
+    body { padding: 1.5rem; }
+    video, canvas, img { width: 100%; border-radius: 12px; }
+    figure { margin: 0; }
+    .stack { display: grid; gap: 0.5rem; }
+    .range-table { overflow-x: auto; }
+    .pill { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; }
+    #snapshot { image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>帯状疱疹ワクチン補助 年齢判定</h1>
+    <p>スマホのカメラでカルテの生年月日を読み取り、令和7年度の補助対象か自動判定します。読み取りが難しい場合は日付を手入力してください。</p>
+
+    <section>
+      <h2>カメラで読み取る</h2>
+      <div class="grid">
+        <div>
+          <video id="preview" autoplay playsinline></video>
+          <small id="camera-status">カメラを起動中...</small>
+          <button id="capture" type="button">この画面を読み取る</button>
+        </div>
+        <div>
+          <div class="stack">
+            <figure>
+              <figcaption>撮影プレビュー</figcaption>
+              <canvas id="snapshot" hidden></canvas>
+            </figure>
+            <figure>
+              <figcaption>OCR用に前処理した画像</figcaption>
+              <canvas id="processed-view" hidden></canvas>
+            </figure>
+          </div>
+          <div id="ocr-progress" role="status"></div>
+          <p><strong>OCR結果:</strong> <span id="ocr-text">(未取得)</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>画像ファイルで試す（プレビュー付き）</h2>
+      <p>カメラが使えない場合や、撮影前に確認したい場合はカルテ写真をアップロードしてください。前処理結果を表示してOCRします。</p>
+      <label>
+        画像ファイルを選択
+        <input type="file" id="upload" accept="image/*" />
+      </label>
+      <div class="grid">
+        <figure>
+          <figcaption>元画像プレビュー</figcaption>
+          <img id="uploaded-preview" alt="アップロード画像" hidden />
+        </figure>
+        <figure>
+          <figcaption>前処理後（OCR入力画像）</figcaption>
+          <canvas id="uploaded-processed" hidden></canvas>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>生年月日を手入力</h2>
+      <form id="manual-form">
+        <label>
+          西暦生年月日
+          <input type="date" id="manual-date" required />
+        </label>
+        <button type="submit">判定する</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>判定結果</h2>
+      <article id="result" class="contrast">
+        <h3>未判定</h3>
+        <p id="result-detail">生年月日を読み取るか手入力してください。</p>
+      </article>
+    </section>
+
+    <section>
+      <details>
+        <summary>対象年齢一覧（令和7年度）</summary>
+        <div class="range-table">
+          <table>
+            <thead>
+              <tr><th>年度年齢</th><th>生年月日</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>65歳</td><td>昭和35年4月2日〜昭和36年4月1日</td></tr>
+              <tr><td>70歳</td><td>昭和30年4月2日〜昭和31年4月1日</td></tr>
+              <tr><td>75歳</td><td>昭和25年4月2日〜昭和26年4月1日</td></tr>
+              <tr><td>80歳</td><td>昭和20年4月2日〜昭和21年4月1日</td></tr>
+              <tr><td>85歳</td><td>昭和15年4月2日〜昭和16年4月1日</td></tr>
+              <tr><td>90歳</td><td>昭和10年4月2日〜昭和11年4月1日</td></tr>
+              <tr><td>95歳</td><td>昭和5年4月2日〜昭和6年4月1日</td></tr>
+              <tr><td>100歳</td><td>大正14年4月2日〜昭和1年4月1日</td></tr>
+              <tr><td>101歳</td><td>大正13年4月2日〜大正14年4月1日</td></tr>
+              <tr><td>101歳以上</td><td>大正14年4月1日以前</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script>
+    const preview = document.getElementById('preview');
+    const canvas = document.getElementById('snapshot');
+    const ocrText = document.getElementById('ocr-text');
+    const progress = document.getElementById('ocr-progress');
+    const resultCard = document.getElementById('result');
+    const resultDetail = document.getElementById('result-detail');
+    const cameraStatus = document.getElementById('camera-status');
+    const processedView = document.getElementById('processed-view');
+    const uploadedPreview = document.getElementById('uploaded-preview');
+    const uploadedProcessed = document.getElementById('uploaded-processed');
+    const uploadInput = document.getElementById('upload');
+
+    const ranges = [
+      { label: '65歳', start: '1960-04-02', end: '1961-04-01' },
+      { label: '70歳', start: '1955-04-02', end: '1956-04-01' },
+      { label: '75歳', start: '1950-04-02', end: '1951-04-01' },
+      { label: '80歳', start: '1945-04-02', end: '1946-04-01' },
+      { label: '85歳', start: '1940-04-02', end: '1941-04-01' },
+      { label: '90歳', start: '1935-04-02', end: '1936-04-01' },
+      { label: '95歳', start: '1930-04-02', end: '1931-04-01' },
+      { label: '100歳', start: '1925-04-02', end: '1926-04-01' },
+      { label: '101歳', start: '1924-04-02', end: '1925-04-01' },
+      { label: '101歳以上', start: null, end: '1925-04-01' },
+    ].map(range => ({
+      ...range,
+      startDate: range.start ? new Date(range.start) : null,
+      endDate: range.end ? new Date(range.end) : null,
+    }));
+
+    function setResult(message, isEligible, label) {
+      resultCard.className = isEligible ? 'contrast' : '';
+      const badge = label ? `<span class="pill">${label}</span>` : '';
+      resultCard.querySelector('h3').innerHTML = isEligible ? '対象です' : '対象外です';
+      resultDetail.innerHTML = `${message} ${badge}`;
+    }
+
+    function eraToYear(era, year) {
+      const y = Number(year);
+      switch (era) {
+        case '令和': return 2018 + y;
+        case '平成': return 1988 + y;
+        case '昭和': return 1925 + y;
+        case '大正': return 1911 + y;
+        default: return null;
+      }
+    }
+
+    function normalizeText(text) {
+      if (!text) return '';
+      // 全角→半角、長音/ダッシュ類→ハイフン、スペース/改行/全角スペースを除去
+      return text
+        .normalize('NFKC')
+        .replace(/[―ー−–—]/g, '-')
+        .replace(/[\s\n\u3000]+/g, '')
+        .replace(/[\.・]/g, '.');
+    }
+
+    function parseBirthDate(text) {
+      if (!text) return null;
+      const normalized = normalizeText(text);
+      const eraPattern = /(令和|平成|昭和|大正)\s*(\d{1,2})年\s*(\d{1,2})月\s*(\d{1,2})日/;
+      const eraMatch = normalized.match(eraPattern);
+      if (eraMatch) {
+        const [, era, y, m, d] = eraMatch;
+        const year = eraToYear(era, y);
+        if (year) return new Date(`${year}-${pad(m)}-${pad(d)}`);
+      }
+
+      const western = /(\d{4})[\/年\.](\d{1,2})[\/月\.](\d{1,2})日?/;
+      const westernMatch = normalized.match(western);
+      if (westernMatch) {
+        const [, y, m, d] = westernMatch;
+        return new Date(`${y}-${pad(m)}-${pad(d)}`);
+      }
+      return null;
+    }
+
+    function pad(value) {
+      return value.toString().padStart(2, '0');
+    }
+
+    function checkEligibility(date) {
+      if (!date) return null;
+      for (const range of ranges) {
+        const afterStart = !range.startDate || date >= range.startDate;
+        const beforeEnd = !range.endDate || date <= range.endDate;
+        if (afterStart && beforeEnd) return range.label;
+      }
+      return null;
+    }
+
+    function preprocessCanvas(source) {
+      // スマホで遠目に撮影された文字を拡大・コントラスト強調し、二値化する
+      // 1) 拡大 + 軽いアンシャープでぼやけを補正
+      const scale = Math.min(3, 2400 / Math.max(source.width, source.height));
+      const work = document.createElement('canvas');
+      work.width = Math.round(source.width * scale);
+      work.height = Math.round(source.height * scale);
+      const ctx = work.getContext('2d');
+      ctx.drawImage(source, 0, 0, work.width, work.height);
+
+      const { data, width, height } = ctx.getImageData(0, 0, work.width, work.height);
+      const gray = new Uint8ClampedArray(width * height);
+
+      // グレースケール + 軽いガンマ補正
+      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        const v = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        gray[p] = Math.min(255, Math.pow(v / 255, 0.9) * 255);
+      }
+
+      // 3x3 box blur (アンシャープマスク用)
+      const blurred = new Uint8ClampedArray(width * height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          let sum = 0, count = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = x + dx, ny = y + dy;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                sum += gray[ny * width + nx];
+                count++;
+              }
+            }
+          }
+          blurred[y * width + x] = sum / count;
+        }
+      }
+
+      // アンシャープ: 元画像 + (元 - ぼかし) * amount
+      const amount = 0.65;
+      for (let i = 0; i < gray.length; i++) {
+        gray[i] = Math.max(0, Math.min(255, gray[i] + (gray[i] - blurred[i]) * amount));
+      }
+
+      // ヒストグラムからOtsuの二値化でコントラストを最大化
+      const hist = new Uint32Array(256);
+      for (const v of gray) hist[v]++;
+      let total = gray.length;
+      let sum = 0;
+      for (let i = 0; i < 256; i++) sum += i * hist[i];
+      let sumB = 0, wB = 0, wF = 0, maxVar = 0, threshold = 128;
+      for (let t = 0; t < 256; t++) {
+        wB += hist[t];
+        if (wB === 0) continue;
+        wF = total - wB;
+        if (wF === 0) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB;
+        const mF = (sum - sumB) / wF;
+        const between = wB * wF * (mB - mF) * (mB - mF);
+        if (between > maxVar) {
+          maxVar = between;
+          threshold = t;
+        }
+      }
+
+      const imageData = ctx.createImageData(width, height);
+      for (let i = 0, p = 0; i < imageData.data.length; i += 4, p++) {
+        const binary = gray[p] > threshold ? 255 : 0;
+        imageData.data[i] = imageData.data[i + 1] = imageData.data[i + 2] = binary;
+        imageData.data[i + 3] = 255;
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      return work;
+    }
+
+    function showProcessed(targetCanvas, processed) {
+      targetCanvas.width = processed.width;
+      targetCanvas.height = processed.height;
+      targetCanvas.getContext('2d').drawImage(processed, 0, 0);
+      targetCanvas.hidden = false;
+    }
+
+    async function runOcr(image, psm = 4) {
+      const { data } = await Tesseract.recognize(image, 'jpn+eng', {
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+        logger: ({ status, progress: p }) => {
+          progress.textContent = `${status} ${(p * 100).toFixed(0)}% (PSM${psm})`;
+        },
+        tessedit_char_whitelist: '令和平成昭和大正0123456789０１２３４５６７８９年月日./-ー−―',
+        tessedit_pageseg_mode: psm,
+        oem: Tesseract.OEM.LSTM_ONLY,
+        preserve_interword_spaces: 1,
+        user_defined_dpi: 300,
+      });
+      return data.text;
+    }
+
+    async function processAndJudge(image, processedTarget) {
+      try {
+        const processed = preprocessCanvas(image);
+        showProcessed(processedTarget, processed);
+
+        const attempts = [4, 6, 12];
+        let finalText = '';
+        let birth = null;
+        for (const psm of attempts) {
+          progress.textContent = 'OCRを実行中...';
+          const text = await runOcr(processed, psm);
+          finalText = text.trim();
+          birth = parseBirthDate(text);
+          if (birth) break;
+        }
+
+        ocrText.textContent = finalText || '(文字を検出できませんでした)';
+        if (!birth) {
+          setResult('生年月日を特定できませんでした。手入力をお試しください。', false);
+          progress.textContent = '未取得';
+          return;
+        }
+
+        const label = checkEligibility(birth);
+        if (label) {
+          setResult(`生年月日: ${birth.toLocaleDateString('ja-JP')} は対象範囲です。`, true, label);
+        } else {
+          setResult(`生年月日: ${birth.toLocaleDateString('ja-JP')} は対象外です。`, false);
+        }
+        progress.textContent = '完了';
+      } catch (error) {
+        console.error(error);
+        setResult('読み取り中にエラーが発生しました。', false);
+      }
+    }
+
+    async function captureFrame() {
+      if (!preview.videoWidth) {
+        alert('カメラが準備できていません。');
+        return;
+      }
+      canvas.width = preview.videoWidth;
+      canvas.height = preview.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(preview, 0, 0, canvas.width, canvas.height);
+      canvas.hidden = false;
+
+      await processAndJudge(canvas, processedView);
+    }
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+        preview.srcObject = stream;
+        cameraStatus.textContent = 'カメラ起動中。カルテを映して「読み取る」を押してください。';
+      } catch (error) {
+        console.error(error);
+        cameraStatus.textContent = 'カメラを起動できません。権限を確認してください。';
+      }
+    }
+
+    document.getElementById('capture').addEventListener('click', captureFrame);
+
+    document.getElementById('manual-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const value = document.getElementById('manual-date').value;
+      if (!value) return;
+      const birth = new Date(value);
+      const label = checkEligibility(birth);
+      if (label) {
+        setResult(`生年月日: ${birth.toLocaleDateString('ja-JP')} は対象範囲です。`, true, label);
+      } else {
+        setResult(`生年月日: ${birth.toLocaleDateString('ja-JP')} は対象外です。`, false);
+      }
+    });
+
+    uploadInput.addEventListener('change', () => {
+      const [file] = uploadInput.files;
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      uploadedPreview.src = url;
+      uploadedPreview.hidden = false;
+      uploadedPreview.onload = async () => {
+        await processAndJudge(uploadedPreview, uploadedProcessed);
+        URL.revokeObjectURL(url);
+      };
+    });
+
+    startCamera();
+  </script>
+</body>
+</html>
